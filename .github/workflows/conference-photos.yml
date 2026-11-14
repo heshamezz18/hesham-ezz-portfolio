@@ -1,0 +1,79 @@
+name: Publish conference portfolio photos
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/conference-photos.yml'
+permissions:
+  contents: write
+jobs:
+  publish-photos:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download and validate event photography
+        run: |
+          python3 - <<'PY'
+          import os, urllib.request, time, struct
+          photos = {
+            "01-ran.jpg":"1ege-AtKS-NubrppNuuSwwVfx0smpjx7d",
+            "02-wsec.jpg":"15sl4_zi2D4vIpZttM7YUhx9ylpTwpqOz",
+            "03-mansoura-annual.jpg":"1PDWPSmkq5lzCIKFgo6tMC7Olem47Q1-w",
+            "04-nephro-tanta.jpg":"1sDe6dF814-LiNIxbLKiN9ohPxWzjoCtB",
+            "05-royal-misse.jpg":"1gnbZwDZXVUk6Svf64aDBKtq4RDjNQiA4",
+            "06-stroke-network.jpg":"1s14WmlOh6JmCxmoGhHNb2ZYsVIKNM2qS",
+            "07-inspira.jpg":"1_NrPEwiPPxI1QLv8gdyA3eBM0Tiym9kU",
+            "08-gems-andalusia.jpg":"1wiB50bCbx8Rqd8uYdTMJVRVxsgn7LE-V",
+            "09-psychiatry.jpg":"1aMcJewfU46ti4qcSbVcS7YwO1AAO6uvm",
+            "10-uears.jpg":"1VyTpgah94qsVKkJOa1clp8lHRV61v2e8",
+            "11-eup.jpg":"1IBL-MZ5Dt14E2bss1tTuvHcUiyLSq9xP",
+            "12-mansoura.jpg":"1QP82h0ZozCVyy4iQLT7OoI69mZyi6SaK",
+            "13-conferences.jpg":"16bc41ZCThWROqAxA37K2-Z8BWHRLgjKF",
+            "14-micap.jpg":"1hbXCMH0UJgjlK1Iz7_jhB4UjehI4sNi3"
+          }
+          os.makedirs("assets",exist_ok=True)
+          for name, file_id in photos.items():
+            if os.path.isfile("assets/"+name): continue
+            urls = [
+              "https://drive.google.com/thumbnail?id="+file_id+"&sz=w1200",
+              "https://drive.google.com/uc?export=download&id="+file_id
+            ]
+            success=False
+            for url in urls:
+              try:
+                req=urllib.request.Request(url,headers={"User-Agent":"Mozilla/5.0"})
+                with urllib.request.urlopen(req,timeout=25) as response:
+                  data=response.read(10000000)
+                if data[:3]!=b'\xff\xd8\xff' or len(data)<5000: raise ValueError("Not a JPEG")
+                with open("assets/"+name,"wb") as out:out.write(data)
+                print("Saved",name,len(data))
+                success=True
+                break
+              except Exception as exc:
+                print("Could not download",name,str(exc))
+            if not success: print("SKIPPED",name)
+          PY
+      - name: Use local images where available
+        run: |
+          python3 - <<'PY'
+          import os,re
+          p="index.html"
+          s=open(p,encoding="utf-8").read()
+          names=["01-ran.jpg","02-wsec.jpg","03-mansoura-annual.jpg","04-nephro-tanta.jpg","05-royal-misse.jpg","06-stroke-network.jpg","07-inspira.jpg","08-gems-andalusia.jpg","09-psychiatry.jpg","10-uears.jpg","11-eup.jpg","12-mansoura.jpg","13-conferences.jpg","14-micap.jpg"]
+          pattern=r'(<div class="project-art"><img[^>]*?src=")([^"]+)(")'
+          idx=iter(names)
+          def replace(m):
+            name=next(idx)
+            return m.group(1)+("assets/"+name if os.path.isfile("assets/"+name) else m.group(2))+m.group(3)
+          s=re.sub(pattern,replace,s)
+          open(p,"w",encoding="utf-8").write(s)
+          PY
+      - name: Commit downloaded images and updated portfolio
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add assets index.html
+          if ! git diff --cached --quiet; then
+            git commit -m "Host conference images locally for reliable portfolio cards"
+            git push
+          fi
